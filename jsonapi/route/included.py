@@ -1,6 +1,6 @@
 from abc import abstractmethod
 import json
-from typing import Callable, List
+from typing import Callable, List, Optional
 from fastapi import Request, Response
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, parse_obj_as
@@ -35,7 +35,7 @@ def getRelatedResources(resource: Resource) -> list[ResourceIdentifierObject]:
 
 
 def hasResolvedResources(resource_identifier: ResourceIdentifierObject, resources: list[Resource]) -> bool:
-    for resource in resources[0]:
+    for resource in resources: #[0]:
         if resource.type == resource_identifier.type and resource.id == resource_identifier.id:
             return True
     return False
@@ -117,7 +117,11 @@ class IncludeRelatedRouteBase(APIRoute):
             if not included_paths:
                 return response
 
-            resources_to_include = await self.fetch_all_related_resources(request, included_paths, [model.data])
+            # if model.data is a list return that, otherswise wrap it in a list
+            existing_resources = model.data if isinstance(
+                model.data, list) else [model.data]
+
+            resources_to_include = await self.fetch_all_related_resources(request, included_paths, existing_resources)
             model.included.extend(resources_to_include)
 
             related_resource_ids = getRelatedResources(model.data)
