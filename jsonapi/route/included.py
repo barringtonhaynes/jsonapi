@@ -1,9 +1,9 @@
 from abc import abstractmethod
 import json
-from typing import Callable, List, Optional
+from typing import Callable, List
 from fastapi import Request, Response
 from fastapi.routing import APIRoute
-from pydantic import BaseModel, parse_obj_as
+from pydantic import BaseModel, TypeAdapter
 
 from jsonapi.models.errors import Error
 from jsonapi.models.relationships import ResourceIdentifierObject
@@ -24,70 +24,103 @@ def traverse(obj, target_type, action):
             traverse(item, target_type, action)
 
 
-def getRelatedResources(resource: Resource) -> list[ResourceIdentifierObject]:
+def get_related_resource_ids(resource: Resource) -> list[ResourceIdentifierObject]:
     related_resources = []
-    related_errors = []
-    traverse(
-        resource, ResourceIdentifierObject,
-        lambda x: related_resources.append(x)
-    )
+    traverse(resource, ResourceIdentifierObject, lambda x: related_resources.append(x))
     return related_resources
-
-
-def hasResolvedResources(resource_identifier: ResourceIdentifierObject, resources: list[Resource]) -> bool:
-    for resource in resources: #[0]:
-        if resource.type == resource_identifier.type and resource.id == resource_identifier.id:
-            return True
-    return False
 
 
 # def get_included_types(include: str) -> list[str]:
 #     if include:
 #         return include.split(',')
-    
+
+
 def parse_included_paths(include: str) -> list[list[str]]:
     if include:
-        return [path.split('.') for path in include.split(',')]
-    return []
+        return [path.split(".") for path in include.split(",")]
+    return None
+
+
+def get_resource_ids(resources: list[Resource]) -> list[ResourceIdentifierObject]:
+    # TODO: Check whether we need to filter out None values
+    return [resource.to_resource_identifier_object() for resource in resources]
+
+
+def filter_resources(
+    resources: list[Resource],
+    resource_ids: list[ResourceIdentifierObject],
+    include: bool = True,
+) -> list[Resource]:
+    return [
+        resource
+        for resource in resources
+        if (resource.to_resource_identifier_object() in resource_ids) == include
+    ]
+
+
+def filter_resource_ids(
+    resources: list[ResourceIdentifierObject],
+    resource_ids: list[ResourceIdentifierObject],
+    include: bool = True,
+) -> list[Resource]:
+    return [
+        resource_id
+        for resource_id in resources
+        if (resource_id in resource_ids) == include
+    ]
 
 
 class IncludeRelatedRouteBase(APIRoute):
-    # @abstractmethod
-    # def get_related_resources(self, request: Request, related_resource_ids=List[ResourceIdentifierObject]) -> List[Resource]:
-    #     raise NotImplementedError
-    
     @abstractmethod
     async def get_related_resources(
-        self,
-        request: Request,
-        related_resource_ids=List[ResourceIdentifierObject]
+        self, request: Request, related_resource_ids=List[ResourceIdentifierObject]
     ) -> tuple[list[Resource], list[Error]]:
         raise NotImplementedError
 
-    async def fetch_all_related_resources(self, request: Request, paths: list[list[str]], existing_resources=None):
+    async def fetch_all_related_resources(
+        self,
+        request: Request,
+        paths: list[list[str]],
+        existing_resources=None,
+        existing_errors=None,
+    ) -> tuple[list[Resource], list[Error]]:
         if not paths:
             return []
+
+        first_relations = [path[0] for path in paths]
 
         if existing_resources is None:
             existing_resources = []
 
-        first_relations = [path[0] for path in paths]
-        related_resource_ids = getRelatedResources(existing_resources)
+        existing_resource_ids = get_resource_ids(existing_resources)
+        related_resource_ids = get_related_resource_ids(existing_resources)
 
-        # Filter out the ones you've already got or aren't in the first step of our paths
+        if existing_errors is None:
+            existing_errors = []
+
+        # Filter out the ones we already have or aren't in the first step of our paths
         related_resource_ids = [
-            res for res in related_resource_ids if res.type in first_relations and not hasResolvedResources(res, existing_resources)
+            resource_id
+            for resource_id in related_resource_ids
+            if resource_id.type in first_relations
+            and not resource_id in existing_resource_ids
         ]
 
-        new_resources, errors = await self.get_related_resources(request, related_resource_ids)
+        new_resources, new_errors = await self.get_related_resources(
+            request, related_resource_ids
+        )
+
         existing_resources.extend(new_resources)
+        existing_errors.extend(new_errors)
 
         # Drop the first relation from each path and filter out any paths that are now empty
         next_paths = [path[1:] for path in paths if len(path) > 1]
 
-        await self.fetch_all_related_resources(request, next_paths, existing_resources)
+        await self.fetch_all_related_resources(
+            request, next_paths, existing_resources, existing_errors
+        )
 
-        return existing_resources
+        return existing_resources, existing_errors
 
     def get_route_handler(self) -> Callable:
         original_route_handler = super().get_route_handler()
@@ -101,52 +134,72 @@ class IncludeRelatedRouteBase(APIRoute):
             # if included_types is None:
             #     return response
 
-            body = json.loads(response.body.decode())
-            model = parse_obj_as(self.response_model, body)
-
-            if model.data is None:
-                return response
-
-            if model.included is None:
-                model.included = []
-
-            included_paths = parse_included_paths(
-                request.query_params.get('include')
-            )
+            included_paths = parse_included_paths(request.query_params.get("include"))
 
             if not included_paths:
                 return response
 
-            # if model.data is a list return that, otherswise wrap it in a list
-            existing_resources = model.data if isinstance(
-                model.data, list) else [model.data]
+            body = json.loads(response.body.decode())
+            model = TypeAdapter(self.response_model).validate_python(body)
 
-            resources_to_include = await self.fetch_all_related_resources(request, included_paths, existing_resources)
-            model.included.extend(resources_to_include)
+            if model.data is None:
+                return response
 
-            related_resource_ids = getRelatedResources(model.data)
-            related_resource_ids.extend(getRelatedResources(model.included))
+            data_resources = (
+                model.data if isinstance(model.data, list) else [model.data]
+            )
+            data_resource_ids = get_resource_ids(data_resources)
 
-            # filter out related_resources that are already included
-            related_resource_ids = [
-                resource_id for resource_id in related_resource_ids if not hasResolvedResources(resource_id, model.included)]
+            print("\nDATA RESOURCES\n", data_resources, "=====================\n")
+            print("\nDATA RESOURCE IDS\n", data_resource_ids, "=====================\n")
 
-            # filter out related_resources that are not in included_types
-            related_resource_ids = [
-                resource_id for resource_id in related_resource_ids if resource_id.type in included_paths] # included_types]
-            
-            r, e = await self.get_related_resources(request, related_resource_ids)
+            model.included = [] if model.included is None else model.included
+            # included_ids = get_resource_ids(model.included)
 
-            model.included.extend(r)
+            fetched_resources, fetched_errors = await self.fetch_all_related_resources(
+                request, included_paths, data_resources
+            )
+            model.included.extend(fetched_resources)
+
+            if fetched_errors:
+                model.errors = [] if model.errors is None else model.errors
+                model.errors.extend(fetched_errors)
+
+            # related_resource_ids = getRelatedResources(model.data)
+            # related_resource_ids.extend(getRelatedResources(model.included))
+
+            # # filter out related_resources that are already included
+            # related_resource_ids = filter_resource_ids(
+            #     related_resource_ids, included_ids, False
+            # )
+
+            # # filter out related_resources that are not in included_types
+            # related_resource_ids = filter_resource_ids(
+            #     related_resource_ids, data_resource_ids
+            # )
+
+            # resources, errors = await self.get_related_resources(
+            #     request, related_resource_ids
+            # )
+
+            # model.included.extend(resources)
 
             # model.included.extend(self.get_related_resources(
             #     request, related_resource_ids))
 
+            # filter out data resources from the included resources
+            model.included = filter_resources(model.included, data_resource_ids, False)
+
+            # if errors:
+            #     model.errors = [] if model.errors is None else model.errors
+            #     model.errors.extend(errors)
+
             return Response(
-                content=model.json(
-                    exclude_none=self.response_model_exclude_none),
+                content=model.model_dump_json(
+                    exclude_none=self.response_model_exclude_none
+                ),
                 media_type="application/vnd.api+json",
-                status_code=response.status_code
+                status_code=response.status_code,
             )
 
         return include_related_handler
