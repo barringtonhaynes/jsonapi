@@ -1,7 +1,7 @@
 from typing import NewType
 
 
-Meta = NewType('Meta', dict[str, any])
+Meta = NewType("Meta", dict[str, any])
 # class Meta(dict[str, any]):
 
 #     class Config:
