@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='jsonapi',
-    version='0.5',
+    version='0.6',
     packages=find_packages(exclude=['tests*']),
     license='MIT',
     description='A Python package for working with JSON API and FastAPI',

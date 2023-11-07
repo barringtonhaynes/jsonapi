@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "jsonapi"
-version = "0.1.0"
+version = "0.6.0"
 description = ""
 authors = ["Barrington Haynes <barrington@littledog.co>"]
 readme = "README.md"
@@ -14,8 +14,8 @@ python = "^3.9"
 
 [tool.poetry.group.test.dependencies]
 pytest = "^7.0.0"
-pydantic = "^2.4.2"
-fastapi = "^0.103.2"
+pydantic = "^2.3.0"
+fastapi = "^0.101.1"
 pytest-cov = "^4.1.0"
 
 [tool.ruff]
