@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, NewType, Optional, TypeVar, TypedDict, Union
+from typing import List, Optional, Union
 from pydantic import BaseModel, AnyHttpUrl, FileUrl, ConfigDict
 
 from .meta import Meta
@@ -16,12 +16,4 @@ class Link(BaseModel):
     hreflang: Optional[Union[str, List[str]]] = None  # link language
     meta: Optional[Meta] = None
 
-
-# class Links(Dict[str, Union[HttpUrl, Link]]):
-#     pass
-
-
-# Links = NewType('Links', dict[str, Union[HttpUrl, Link]])
-
 Links = dict[str, Union[AnyHttpUrl, FileUrl, str, Link]]
-# Links = dict[str, Any]

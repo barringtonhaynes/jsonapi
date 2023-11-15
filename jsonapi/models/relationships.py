@@ -1,5 +1,5 @@
 from typing_extensions import Annotated
-from typing import Any, List, Optional, Union
+from typing import List, Optional, Union
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, StrictStr
 
@@ -11,7 +11,7 @@ class ResourceIdentifierObject(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     type: StrictStr
-    id: Annotated[StrictStr, BeforeValidator(lambda v: str(v))]
+    id: Annotated[StrictStr, BeforeValidator(str)]
 
 
 RelationshipData = Union[List[ResourceIdentifierObject], ResourceIdentifierObject]
@@ -26,9 +26,3 @@ class Relationship(BaseModel):
 
 
 Relationships = dict[str, Relationship]
-
-# class Relationships(Dict[str, Relationship]):
-#     # pass
-
-#     class Config:
-#         from_attributes = True
