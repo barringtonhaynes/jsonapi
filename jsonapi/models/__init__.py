@@ -9,10 +9,10 @@ from pydantic import AnyHttpUrl, BaseModel, ConfigDict, model_validator
 
 from .errors import Error
 from .meta import Meta
+from .resource import Resource
 from .pagination import Pagination
 
 DataT = TypeVar("DataT")
-IncludedT = TypeVar("IncludedT")
 
 
 class JsonApi(BaseModel):
@@ -36,7 +36,7 @@ class GenericORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class JsonApiResponse(GenericORMModel, Generic[DataT, IncludedT]):
+class JsonApiResponse(GenericORMModel, Generic[DataT]):
     model_config = ConfigDict(
         from_attributes=True, arbitrary_types_allowed=True, exclude_unset=True
     )
@@ -46,7 +46,7 @@ class JsonApiResponse(GenericORMModel, Generic[DataT, IncludedT]):
     meta: Optional[Meta] = None
     jsonapi: Optional[JsonApi] = None
     links: Optional[TopLevelLinks] = None
-    included: Optional[List[IncludedT]] = None  # needs to be a set
+    included: Optional[List[Resource]] = None  # needs to be a set
 
     @model_validator(mode="after")
     def check_valid_fields(self) -> JsonApiResponse:

@@ -5,6 +5,7 @@ from fastapi import Request, Response
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, TypeAdapter
 
+from jsonapi.models import JsonApiResponse
 from jsonapi.models.errors import Error
 from jsonapi.models.relationships import ResourceIdentifierObject
 from jsonapi.models.resource import Resource
@@ -26,7 +27,7 @@ def traverse(obj, target_type, action):
 
 def get_related_resource_ids(resource: Resource) -> list[ResourceIdentifierObject]:
     related_resources = []
-    traverse(resource, ResourceIdentifierObject, lambda x: related_resources.append(x))
+    traverse(resource, ResourceIdentifierObject, related_resources.append)
     return related_resources
 
 
@@ -140,7 +141,10 @@ class IncludeRelatedRouteBase(APIRoute):
                 return response
 
             body = json.loads(response.body.decode())
-            model = TypeAdapter(self.response_model).validate_python(body)
+
+            model: JsonApiResponse = TypeAdapter(self.response_model).validate_python(
+                body
+            )
 
             if model.data is None:
                 return response
@@ -148,17 +152,16 @@ class IncludeRelatedRouteBase(APIRoute):
             data_resources = (
                 model.data if isinstance(model.data, list) else [model.data]
             )
-            data_resource_ids = get_resource_ids(data_resources)
 
-            print("\nDATA RESOURCES\n", data_resources, "=====================\n")
-            print("\nDATA RESOURCE IDS\n", data_resource_ids, "=====================\n")
+            data_resource_ids = get_resource_ids(data_resources)
 
             model.included = [] if model.included is None else model.included
             # included_ids = get_resource_ids(model.included)
 
             fetched_resources, fetched_errors = await self.fetch_all_related_resources(
-                request, included_paths, data_resources
+                request, included_paths, data_resources.copy()
             )
+
             model.included.extend(fetched_resources)
 
             if fetched_errors:
@@ -196,7 +199,8 @@ class IncludeRelatedRouteBase(APIRoute):
 
             return Response(
                 content=model.model_dump_json(
-                    exclude_none=self.response_model_exclude_none
+                    exclude_none=self.response_model_exclude_none,
+                    exclude_unset=self.response_model_exclude_unset,
                 ),
                 media_type="application/vnd.api+json",
                 status_code=response.status_code,
